@@ -44,8 +44,6 @@ BaseStep.model_rebuild()
 class Section03(BaseModel):
     steps: list[Step]
 
-class Section04(BaseModel):
-    comments: str
 
 class Version(BaseModel):
     date: str
@@ -53,7 +51,7 @@ class Version(BaseModel):
     change_description: str
     version: str
 
-class Section05(BaseModel):
+class Section04(BaseModel):
     version_history: list[Version] 
 
 class Contents(BaseModel):
