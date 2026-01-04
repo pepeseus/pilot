@@ -1,0 +1,257 @@
+{
+  "$defs": {
+    "DateTimeStep": {
+      "additionalProperties": false,
+      "properties": {
+        "uuid": {
+          "type": "string"
+        },
+        "description": {
+          "type": "string"
+        },
+        "step_type": {
+          "const": "datetime",
+          "type": "string"
+        },
+        "date_completed": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "uuid",
+        "description",
+        "step_type",
+        "date_completed"
+      ],
+      "type": "object"
+    },
+    "Personnel": {
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "phone_number": {
+          "type": "string"
+        },
+        "email_address": {
+          "type": "string"
+        },
+        "active_employee": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "name",
+        "phone_number",
+        "email_address",
+        "active_employee"
+      ],
+      "type": "object"
+    },
+    "Section01": {
+      "additionalProperties": false,
+      "properties": {
+        "title": {
+          "type": "string"
+        },
+        "date_written": {
+          "type": "string"
+        },
+        "date_due": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "title",
+        "date_written",
+        "date_due"
+      ],
+      "type": "object"
+    },
+    "Section02": {
+      "additionalProperties": false,
+      "properties": {
+        "participants": {
+          "items": {
+            "$ref": "#/$defs/Personnel"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "participants"
+      ],
+      "type": "object"
+    },
+    "Section03": {
+      "additionalProperties": false,
+      "properties": {
+        "steps": {
+          "items": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/StandardStep"
+              },
+              {
+                "$ref": "#/$defs/DateTimeStep"
+              },
+              {
+                "$ref": "#/$defs/SubtitleStep"
+              }
+            ]
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "steps"
+      ],
+      "type": "object"
+    },
+    "Section04": {
+      "additionalProperties": false,
+      "properties": {
+        "comments": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "comments"
+      ],
+      "type": "object"
+    },
+    "Section05": {
+      "additionalProperties": false,
+      "properties": {
+        "version_history": {
+          "items": {
+            "$ref": "#/$defs/Version"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "version_history"
+      ],
+      "type": "object"
+    },
+    "StandardStep": {
+      "additionalProperties": false,
+      "properties": {
+        "uuid": {
+          "type": "string"
+        },
+        "description": {
+          "type": "string"
+        },
+        "step_type": {
+          "const": "standard",
+          "type": "string"
+        }
+      },
+      "required": [
+        "uuid",
+        "description",
+        "step_type"
+      ],
+      "type": "object"
+    },
+    "SubtitleStep": {
+      "additionalProperties": false,
+      "properties": {
+        "step_type": {
+          "const": "subtitle",
+          "type": "string"
+        }
+      },
+      "required": [
+        "step_type"
+      ],
+      "type": "object"
+    },
+    "Version": {
+      "additionalProperties": false,
+      "properties": {
+        "date": {
+          "type": "string"
+        },
+        "author": {
+          "type": "string"
+        },
+        "change_description": {
+          "type": "string"
+        },
+        "version": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "date",
+        "author",
+        "change_description",
+        "version"
+      ],
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "section_01": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/Section01"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "section_02": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/Section02"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "section_03": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/Section03"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "section_04": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/Section04"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "section_05": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/Section05"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    }
+  },
+  "type": "object"
+}
