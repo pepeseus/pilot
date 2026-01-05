@@ -1,0 +1,84 @@
+{
+  "section_01": {
+    "title": "Flight Operations Brief - Winter 2026",
+    "date_written": "2026-01-05",
+    "date_due": "2026-01-31"
+  },
+  "section_02": {
+    "participants": [
+      {
+        "name": "Captain Sarah Johnson",
+        "phone_number": "+1-555-0123",
+        "email_address": "sarah.johnson@airline.com",
+        "active_employee": true
+      },
+      {
+        "name": "First Officer Michael Chen",
+        "phone_number": "+1-555-0124",
+        "email_address": "michael.chen@airline.com",
+        "active_employee": true
+      },
+      {
+        "name": "Flight Engineer David Martinez",
+        "phone_number": "+1-555-0125",
+        "email_address": "david.martinez@airline.com",
+        "active_employee": false
+      }
+    ]
+  },
+  "section_03": {
+    "steps": [
+      {
+        "uuid": "step-001",
+        "description": "Pre-flight weather briefing and route analysis",
+        "step_type": "standard"
+      },
+      {
+        "uuid": "step-002",
+        "description": "Aircraft systems check completed",
+        "step_type": "datetime",
+        "date_completed": "2026-01-05"
+      },
+      {
+        "step_type": "subtitle"
+      },
+      {
+        "uuid": "step-003",
+        "description": "Fuel calculation and loading verification",
+        "step_type": "standard"
+      },
+      {
+        "uuid": "step-004",
+        "description": "Final safety inspection completed",
+        "step_type": "datetime",
+        "date_completed": "2026-01-05"
+      }
+    ]
+  },
+  "section_04": {
+    "comments": "All crew members are <b>fully certified</b> and current on their training.<br><i>Weather conditions are favorable</i> for departure.<br><u>Note:</u> Additional de-icing equipment is <b><i>on standby</i></b> due to forecasted conditions."
+  },
+  "section_05": {
+    "version_history": [
+      {
+        "date": "2026-01-01",
+        "author": "John Smith",
+        "change_description": "Initial draft created",
+        "version": "1.0"
+      },
+      {
+        "date": "2026-01-03",
+        "author": "Sarah Johnson",
+        "change_description": "Added participant information and updated procedures",
+        "version": "1.1"
+      },
+      {
+        "date": "2026-01-05",
+        "author": "Michael Chen",
+        "change_description": "Final review and approval for winter operations",
+        "version": "2.0"
+      }
+    ]
+  }
+}
+

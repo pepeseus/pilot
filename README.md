@@ -1,4 +1,4 @@
-# pilot
+# PilotBrief
 
 A system to populate Word document templates with JSON data, designed to support frequent template updates with minimal code changes.
 
@@ -6,18 +6,17 @@ A system to populate Word document templates with JSON data, designed to support
 
 * `data/`: Static assets (Templates, Schemas, Example JSON).
 * `src/`: Application source code.
-    * `schema.py`: Pydantic definitions.
-    * `mapper.py`: Logic to map JSON data to Word table columns.
-    * `doc_generator.py`: Main logic to write the .docx file.
-* `output/`: Generated documents (ignored by Git).
-* `tests/`: Unit tests.
+    * `schema.py`: Pydantic schema definitions for data validation.
+    * `interactive_mapper.py`: Streamlit app for mapping JSON fields to Word document sections.
+    * `document_generator.py`: Streamlit app for generating populated Word documents from JSON data.
 
 ## Setup Instructions
 
 1.  **Create a Virtual Environment**
     ```bash
-    python3 -m venv .venv
-    source .venv/bin/activate  # On Windows: .venv\Scripts\activate
+    python -m venv .venv
+    .venv\Scripts\activate  # On Windows
+    # source .venv/bin/activate  # On macOS/Linux
     ```
 
 2.  **Install Dependencies**
@@ -27,16 +26,25 @@ A system to populate Word document templates with JSON data, designed to support
 
 ## Usage
 
-1.  **Run the Generator** (Once implemented)
+1.  **Interactive Mapper** - Map JSON fields to document sections
     ```bash
-    python src/main.py
+    streamlit run src/interactive_mapper.py
     ```
+    This tool helps you create and edit mappings between JSON schema fields and Word document sections. It automatically detects headings in your document and allows you to assign JSON fields to specific sections.
 
-2.  **Run Tests**
+2.  **Document Generator** - Populate templates with JSON data
+    ```bash
+    streamlit run src/document_generator.py
+    ```
+    This tool takes a Word template, a mapping file, and JSON data to generate a populated document. It handles various data types including dates, emails, and nested objects.
+
+3.  **Run Tests** (if available)
     ```bash
     pytest tests/
     ```
 
-## Key Assumptions
-* **Header Mapping:** The system assumes Word table headers (e.g., "Phone No.") broadly match JSON keys (e.g., `phone_no`).
-* **Polymorphism:** Section 03 handles multiple step types (`Standard`, `DateTime`, `Subtitle`) requiring dynamic row handling.
+## Key Features
+* **Flexible Section Naming:** Headings in your Word document can be named anything - the system automatically detects them.
+* **Format Recognition:** Automatically detects and displays dates (📅) and email addresses (📧) based on JSON schema format annotations.
+* **Dynamic Mapping:** Create and edit field-to-section mappings through an interactive web interface.
+* **Template Support:** Works with any Word document template structure.

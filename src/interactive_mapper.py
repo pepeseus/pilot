@@ -12,7 +12,7 @@ from docx.text.paragraph import Paragraph
 st.set_page_config(page_title="JSON to Document Mapper", layout="wide")
 
 # ============================================================
-# Helper Functions
+# HELPER FUNCTIONS
 # ============================================================
 
 def resolve_schema_ref(root_schema, ref_path):
@@ -40,6 +40,12 @@ def extract_json_fields(schema_data, prefix="", section="", root=None, group=Non
     required_set = set(schema_data.get("required", []))
     include_all = len(required_set) == 0
     
+    """
+    Presumably, properties is where the fields we are about to extract are defined.
+    So to add more fields, we just need to add them to the properties section.
+    Some work is required to extract all the fields from the def section, which is why this is so long...
+    """
+
     if "properties" in schema_data:
         for k, v in schema_data["properties"].items():
             if not include_all and k not in required_set:
@@ -87,7 +93,16 @@ def extract_json_fields(schema_data, prefix="", section="", root=None, group=Non
     return fields
 
 def parse_word_document(doc):
-    """Parse Word document into text segments."""
+    """
+    Parse Word document into text segments.
+    This is used to identify the text blocks in the document that will be replaced by the JSON fields.
+    There's a lot of stuff in a word document that we don't need to worry about, so this gets the things we care about.
+
+    Notably, this means blank sections will be ignored. For now, the user 
+    will need to manually add a section marker to the document.
+
+    TODO: come up with a softwarefix for this.
+    """
     segments = []
     current_section = None
     
@@ -101,11 +116,9 @@ def parse_word_document(doc):
             style = para.style.name if para.style else ""
             is_heading = style.lower().startswith("heading")
             
-            # Check for section markers
-            m = re.search(r"section\s*(\d+)", text, re.I)
-            if m:
-                current_section = f"section_{m.group(1).zfill(2)}"
-                is_heading = True
+            # Update current section when we encounter a heading
+            if is_heading:
+                current_section = text
             
             segments.append({
                 "text": text,
@@ -119,6 +132,9 @@ def parse_word_document(doc):
             
             # Track unique text in each row to avoid merged cell duplicates
             # but keep the same text if it appears in different rows
+
+            # why? issues with pulling data using docx library, which gave some duplicate text
+    
             seen_in_row = {}
             
             for row_idx, row in enumerate(table.rows):
@@ -149,8 +165,28 @@ def parse_word_document(doc):
     return segments
 
 # ============================================================
-# Main App
+# MAIN APP
 # ============================================================
+
+"""
+This is the main app. It's what the user sees when they load the page.
+It's a simple interface built with streamlit.
+
+The rest of the code is mostly just UI and the logic to tie the functions above into a working app.
+Notably, the app is able to recognize dates and email addresses, and will display them with the appropriate icons.
+These are marked in the JSON schema by adding the format property, e.g.:
+
+    "date_completed": {
+        "type": "string",
+        "format": "date"
+    }
+
+    "email_address": {
+        "type": "string",
+        "format": "email"
+    }
+    
+"""
 
 st.title("📋 JSON to Document Mapper")
 st.markdown("Map JSON schema fields to Word document locations - define which text each JSON field should replace.")

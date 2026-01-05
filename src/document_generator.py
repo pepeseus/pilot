@@ -1,12 +1,76 @@
 import streamlit as st
 import pandas as pd
 from docx import Document
+from docx.shared import Pt
 import json
 from datetime import datetime
 from io import BytesIO
 import re
+import html
 
 st.set_page_config(page_title="Document Generator", layout="wide")
+
+# ============================================================
+# HTML to Word Formatting Helper
+# ============================================================
+
+def apply_html_to_paragraph(paragraph, html_text):
+    """
+    Parse HTML and apply formatting to Word paragraph.
+    Supports: <b>, <strong>, <i>, <em>, <u>, <br>
+    """
+    paragraph.clear()
+    
+    # Track current formatting state
+    is_bold = False
+    is_italic = False
+    is_underline = False
+    
+    # Pattern to match HTML tags
+    tag_pattern = r'<(/?)([a-z]+)>'
+    
+    last_end = 0
+    for match in re.finditer(tag_pattern, html_text, re.IGNORECASE):
+        # Add text before this tag
+        text_before = html_text[last_end:match.start()]
+        if text_before:
+            text_before = html.unescape(text_before)
+            run = paragraph.add_run(text_before)
+            run.bold = is_bold
+            run.italic = is_italic
+            run.underline = is_underline
+        
+        # Process the tag
+        is_closing = match.group(1) == '/'
+        tag_name = match.group(2).lower()
+        
+        if tag_name == 'br':
+            paragraph.add_run('\n')
+        elif tag_name in ['b', 'strong']:
+            is_bold = not is_closing
+        elif tag_name in ['i', 'em']:
+            is_italic = not is_closing
+        elif tag_name == 'u':
+            is_underline = not is_closing
+        
+        last_end = match.end()
+    
+    # Add remaining text after last tag
+    text_after = html_text[last_end:]
+    if text_after:
+        text_after = html.unescape(text_after)
+        run = paragraph.add_run(text_after)
+        run.bold = is_bold
+        run.italic = is_italic
+        run.underline = is_underline
+    
+    # If no runs were added, add the original text as-is
+    if not paragraph.runs:
+        paragraph.add_run(html.unescape(html_text))
+
+def has_html_tags(text):
+    """Check if text contains HTML tags."""
+    return bool(re.search(r'<[^>]+>', text))
 
 st.title("📄 Document Generator")
 st.markdown("Upload your template, mapping config, and optionally existing data - then fill in or edit the values to generate your document.")
@@ -33,11 +97,46 @@ if template_file and mapping_file:
     
     # Load existing data if provided
     existing_data = {}
+    data_file_name = None
     if data_file:
         existing_data = json.load(data_file)
+        data_file_name = data_file.name
         st.success(f"✓ Loaded existing data with {len(existing_data)} top-level keys")
     
     st.markdown("---")
+    
+    # Helper function to extract value from nested JSON with array support
+    def extract_value_from_data(json_path, data):
+        """Extract value from nested data structure, handling arrays."""
+        # Handle array notation
+        has_array = "[]" in json_path
+        path_parts = json_path.replace("[]", "").split(".")
+        
+        current = data
+        for i, part in enumerate(path_parts):
+            if not isinstance(current, dict):
+                # If we hit an array when we expected a dict
+                if isinstance(current, list) and len(current) > 0:
+                    # For array fields, take the first item as default
+                    current = current[0]
+                    if isinstance(current, dict):
+                        current = current.get(part, "")
+                    else:
+                        return ""
+                else:
+                    return ""
+            else:
+                current = current.get(part, "")
+                
+                # If this is an array and we're not at the last part
+                if isinstance(current, list) and i < len(path_parts) - 1:
+                    if len(current) > 0:
+                        # Take first item for now
+                        current = current[0]
+                    else:
+                        return ""
+        
+        return current if current else ""
     
     # Extract fields from mapping config
     fields_data = []
@@ -47,14 +146,7 @@ if template_file and mapping_file:
         group = config.get("group", "ungrouped")
         
         # Get existing value if available
-        path_parts = json_path.replace("[]", "").split(".")
-        existing_value = existing_data
-        for part in path_parts:
-            if isinstance(existing_value, dict):
-                existing_value = existing_value.get(part, "")
-            else:
-                existing_value = ""
-                break
+        existing_value = extract_value_from_data(json_path, existing_data)
         
         if not existing_value:
             existing_value = ""
@@ -78,9 +170,67 @@ if template_file and mapping_file:
     st.subheader("📝 Enter/Edit Data")
     st.caption("Fill in the values for each field. Date fields show a calendar picker 📅, email fields validate format 📧")
     
-    # Store values in session state
+    with st.expander("💡 Rich Text Formatting (HTML)"):
+        st.markdown("""
+        **Text fields support HTML formatting:**
+        - `<b>bold text</b>` or `<strong>bold text</strong>` → **bold text**
+        - `<i>italic text</i>` or `<em>italic text</em>` → *italic text*
+        - `<u>underlined text</u>` → <u>underlined text</u>
+        - `<br>` → line break
+        
+        **Example:**
+        ```
+        This is <b>bold</b>, this is <i>italic</i>, and this is <u>underlined</u>.<br>
+        This is a new line with <b><i>bold italic</i></b> text.
+        ```
+        """)
+    
+    # Store values in session state - update if data file changes
+    if "last_data_file" not in st.session_state:
+        st.session_state.last_data_file = None
+    
+    # Check if we need to reload data (new file or first time)
+    data_changed = st.session_state.last_data_file != data_file_name
+    
     if "field_values" not in st.session_state:
-        st.session_state.field_values = {f["path"]: f["value"] for f in fields_data}
+        st.session_state.field_values = {}
+    
+    # Update field values and widget keys when data changes
+    if data_changed:
+        st.session_state.last_data_file = data_file_name
+        
+        # Update our tracking dict AND the widget state keys
+        for field in fields_data:
+            path = field["path"]
+            value = field["value"]
+            field_format = field.get("format")
+            
+            # Store in our tracking
+            st.session_state.field_values[path] = value
+            
+            # Also set the widget keys directly
+            if field_format == "date":
+                # For dates, parse and store as date object
+                if value:
+                    try:
+                        st.session_state[f"date_{path}"] = datetime.strptime(value, "%Y-%m-%d").date()
+                    except:
+                        st.session_state[f"date_{path}"] = datetime.now().date()
+            elif field_format == "email":
+                st.session_state[f"email_{path}"] = value
+            else:
+                st.session_state[f"text_{path}"] = value
+        
+        if data_file_name:
+            filled_count = len([f for f in fields_data if f['value']])
+            st.info(f"📥 Pre-filled {filled_count} / {len(fields_data)} fields from {data_file_name}")
+            
+            # Show which fields were filled
+            with st.expander("🔍 View Pre-filled Fields"):
+                for field in fields_data:
+                    if field['value']:
+                        value_preview = field['value'][:50] + "..." if len(field['value']) > 50 else field['value']
+                        st.text(f"✓ {field['path']}: {value_preview}")
     
     # Create tabs for each group
     group_tabs = st.tabs([f"📁 {grp}" for grp in sorted(fields_by_group.keys())])
@@ -132,13 +282,22 @@ if template_file and mapping_file:
                     st.session_state.field_values[path] = email_value
                 
                 else:
-                    # Regular text input
-                    text_value = st.text_input(
+                    # Regular text input - use text_area for HTML support
+                    text_value = st.text_area(
                         path,
                         value=current_value,
-                        key=f"text_{path}"
+                        key=f"text_{path}",
+                        height=100,
+                        help="Supports HTML: <b>bold</b>, <i>italic</i>, <u>underline</u>, <br> for line break"
                     )
                     st.session_state.field_values[path] = text_value
+                    
+                    # Show HTML preview if HTML tags detected
+                    if text_value and has_html_tags(text_value):
+                        st.caption("🎨 HTML detected - will apply formatting")
+                        # Show a preview of how it will render
+                        preview_html = text_value.replace('<br>', '<br/>')
+                        st.markdown(f"Preview: {preview_html}", unsafe_allow_html=True)
     
     # Show data preview
     st.markdown("---")
@@ -204,6 +363,8 @@ if template_file and mapping_file:
             
             # Apply mappings
             updated_count = 0
+            debug_info = []
+            
             for path, value in st.session_state.field_values.items():
                 if value and path in mapping_config:
                     doc_loc = mapping_config[path]["document_location"]
@@ -212,28 +373,57 @@ if template_file and mapping_file:
                     if idx < len(segments):
                         para = segments[idx]["obj"]
                         
-                        # Preserve formatting
+                        # Preserve original formatting attributes
+                        original_font_name = None
+                        original_font_size = None
                         if para.runs:
                             first_run = para.runs[0]
-                            bold = first_run.bold
-                            italic = first_run.italic
-                            font_name = first_run.font.name
-                            font_size = first_run.font.size
+                            original_font_name = first_run.font.name
+                            original_font_size = first_run.font.size
+                        
+                        # Check if value contains HTML tags
+                        value_str = str(value)
+                        has_html = has_html_tags(value_str)
+                        
+                        if has_html:
+                            # Apply HTML formatting
+                            debug_info.append(f"🎨 Applied HTML to {path}: {value_str[:50]}...")
+                            apply_html_to_paragraph(para, value_str)
                             
-                            para.clear()
-                            run = para.add_run(str(value))
-                            run.bold = bold
-                            run.italic = italic
-                            if font_name:
-                                run.font.name = font_name
-                            if font_size:
-                                run.font.size = font_size
+                            # Reapply original font properties to all runs
+                            if original_font_name or original_font_size:
+                                for run in para.runs:
+                                    if original_font_name:
+                                        run.font.name = original_font_name
+                                    if original_font_size:
+                                        run.font.size = original_font_size
                         else:
-                            para.text = str(value)
+                            # Plain text - preserve formatting
+                            debug_info.append(f"📝 Applied plain text to {path}: {value_str[:50]}...")
+                            if para.runs:
+                                first_run = para.runs[0]
+                                bold = first_run.bold
+                                italic = first_run.italic
+                                
+                                para.clear()
+                                run = para.add_run(value_str)
+                                run.bold = bold
+                                run.italic = italic
+                                if original_font_name:
+                                    run.font.name = original_font_name
+                                if original_font_size:
+                                    run.font.size = original_font_size
+                            else:
+                                para.text = value_str
                         
                         updated_count += 1
             
             st.success(f"✅ Generated document! Updated {updated_count} fields.")
+            
+            # Show debug info
+            with st.expander("🔍 Debug Info - What was applied"):
+                for info in debug_info:
+                    st.text(info)
             
             # Save to buffer
             buffer = BytesIO()

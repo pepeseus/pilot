@@ -1,9 +1,9 @@
 # Core Dependencies
 pydantic>=2.0.0      # For data validation (schema.py)
 python-docx>=0.8.11  # For manipulating .docx templates
-streamlit>=1.28.0    # For the web interface (app.py)
-pandas>=2.0.0        # For data manipulation and editing (app.py)
+streamlit>=1.28.0    # For web interfaces (interactive_mapper.py, document_generator.py)
+pandas>=2.0.0        # For data manipulation and table editing
 
 # Development & Testing
 pytest>=7.0.0        # For running unit tests
-black>=23.0.0        # For code formatting (keeps things clean)
+black>=23.0.0        # For code formatting
