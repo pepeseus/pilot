@@ -40,11 +40,10 @@ def extract_json_fields(schema_data, prefix="", section="", root=None, group=Non
     required_set = set(schema_data.get("required", []))
     include_all = len(required_set) == 0
     
-    """
-    Presumably, properties is where the fields we are about to extract are defined.
-    So to add more fields, we just need to add them to the properties section.
-    Some work is required to extract all the fields from the def section, which is why this is so long...
-    """
+
+    # Presumably, properties is where the fields we are about to extract are defined.
+    # So to add more fields, we just need to add them to the properties section.
+    # Some work is required to extract all the fields from the def section, which is why this is so long...
 
     if "properties" in schema_data:
         for k, v in schema_data["properties"].items():
@@ -168,25 +167,16 @@ def parse_word_document(doc):
 # MAIN APP
 # ============================================================
 
-"""
-This is the main app. It's what the user sees when they load the page.
-It's a simple interface built with streamlit.
 
-The rest of the code is mostly just UI and the logic to tie the functions above into a working app.
-Notably, the app is able to recognize dates and email addresses, and will display them with the appropriate icons.
-These are marked in the JSON schema by adding the format property, e.g.:
 
-    "date_completed": {
-        "type": "string",
-        "format": "date"
-    }
+# This is the main app. It's what the user sees when they load the page.
+# It's a simple interface built with streamlit.
 
-    "email_address": {
-        "type": "string",
-        "format": "email"
-    }
-    
-"""
+# The rest of the code is mostly just UI and the logic to tie the functions above into a working app.
+# Notably, the app is able to recognize dates and email addresses, and will display them with the appropriate icons.
+# These are marked in the JSON schema by adding the format property, e.g.:
+
+
 
 st.title("📋 JSON to Document Mapper")
 st.markdown("Map JSON schema fields to Word document locations - define which text each JSON field should replace.")

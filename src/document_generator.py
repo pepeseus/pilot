@@ -11,13 +11,15 @@ import html
 st.set_page_config(page_title="Document Generator", layout="wide")
 
 # ============================================================
-# HTML to Word Formatting Helper
+# HTML TO WORD FORMATTING HELPER
 # ============================================================
 
 def apply_html_to_paragraph(paragraph, html_text):
     """
     Parse HTML and apply formatting to Word paragraph.
     Supports: <b>, <strong>, <i>, <em>, <u>, <br>
+
+    To support rich text (HTML)!
     """
     paragraph.clear()
     
@@ -55,7 +57,7 @@ def apply_html_to_paragraph(paragraph, html_text):
         
         last_end = match.end()
     
-    # Add remaining text after last tag
+    # add remaining text after last tag
     text_after = html_text[last_end:]
     if text_after:
         text_after = html.unescape(text_after)
@@ -64,7 +66,7 @@ def apply_html_to_paragraph(paragraph, html_text):
         run.italic = is_italic
         run.underline = is_underline
     
-    # If no runs were added, add the original text as-is
+    # if no runs were added, add the original text as-is
     if not paragraph.runs:
         paragraph.add_run(html.unescape(html_text))
 
@@ -76,7 +78,7 @@ st.title("📄 Document Generator")
 st.markdown("Upload your template, mapping config, and optionally existing data - then fill in or edit the values to generate your document.")
 
 # ============================================================
-# File Uploaders
+# FILE UPLOADERS
 # ============================================================
 
 col1, col2, col3 = st.columns(3)
