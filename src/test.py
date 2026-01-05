@@ -33,4 +33,4 @@ def dump_docx_dom(docx_path):
     print_tree(root)
 
 if __name__ == "__main__":
-    dump_docx_dom("data/templates/base_template.docx")
+    dump_docx_dom("data/base_template.docx")

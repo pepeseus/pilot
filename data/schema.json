@@ -253,5 +253,16 @@
       "default": null
     }
   },
+  "section_TEST_SECTION": {
+    "anyOf": [
+      {
+        "$ref": "#/$defs/Section04"
+      },
+      {
+        "type": "null"
+      }
+    ],
+    "default": null
+  },
   "type": "object"
 }
