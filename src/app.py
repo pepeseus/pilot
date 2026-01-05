@@ -1,104 +1,245 @@
-# src/app.py
 import streamlit as st
 import pandas as pd
 from docx import Document
 import json
+import re
 
-# Import your logic
+from docx.oxml.table import CT_Tbl
+from docx.oxml.text.paragraph import CT_P
+from docx.table import Table
+from docx.text.paragraph import Paragraph
+
 from mapper import normalize_header, map_row_data
 
-def extract_all_keys(data, keys=None):
+st.set_page_config(page_title="Flexible Exports Pilot", layout="wide", initial_sidebar_state="collapsed")
+
+
+def walk_container(container, path):
+    nodes = []
+
+    # Paragraphs in this container
+    for i, p in enumerate(container.paragraphs):
+        if p.text.strip():
+            nodes.append({
+                "type": "paragraph",
+                "text": p.text,
+                "style": p.style.name if p.style else None,
+                "path": f"{path}/p[{i}]",
+                "obj": p
+            })
+
+    # Tables in this container
+    for ti, table in enumerate(container.tables):
+        table_path = f"{path}/table[{ti}]"
+        table_node = {
+            "type": "table",
+            "path": table_path,
+            "rows": []
+        }
+
+        for ri, row in enumerate(table.rows):
+            row_node = {"type": "row", "cells": []}
+
+            for ci, cell in enumerate(row.cells):
+                cell_path = f"{table_path}/row[{ri}]/cell[{ci}]"
+                cell_node = {
+                    "type": "cell",
+                    "path": cell_path,
+                    "children": walk_container(cell, cell_path)
+                }
+                row_node["cells"].append(cell_node)
+
+            table_node["rows"].append(row_node)
+
+        nodes.append(table_node)
+
+    return nodes
+
+def render_node(node):
     """
-    Recursively extract all keys from a JSON structure.
-    Returns a flat set of all possible field names.
+    Render a node from the walk_container DOM tree into Streamlit.
+    Shows paragraphs and tables recursively with paths for context.
     """
-    if keys is None:
-        keys = set()
-    
-    if isinstance(data, dict):
-        for key, value in data.items():
-            keys.add(key)
-            extract_all_keys(value, keys)
-    elif isinstance(data, list) and data:
-        # Look at first item in list
-        extract_all_keys(data[0], keys)
-    
-    return keys
+    if node["type"] == "paragraph":
+        st.markdown(f"**{node['path']}**")
+        st.text(node["text"])
+
+    elif node["type"] == "table":
+        with st.expander(f"📊 {node['path']}"):
+            for row in node["rows"]:
+                for cell in row["cells"]:
+                    with st.expander(cell["path"]):
+                        for child in cell["children"]:
+                            render_node(child)
+
+# ============================================================
+# Word document model (THIS IS THE FIX)
+# ============================================================
+
+def iter_block_items(doc):
+    for child in doc.element.body:
+        if isinstance(child, CT_P):
+            yield Paragraph(child, doc)
+        elif isinstance(child, CT_Tbl):
+            yield Table(child, doc)
+
+def extract_document_structure(doc):
+    structure = []
+    current_section = None
+
+    for block in iter_block_items(doc):
+        if isinstance(block, Paragraph):
+            text = block.text.strip()
+            if not text:
+                continue
+
+            style = block.style.name if block.style else ""
+
+            is_heading = False
+            level = None
+
+            if style.lower().startswith("heading"):
+                is_heading = True
+                m = re.search(r"(\d+)", style)
+                if m:
+                    level = int(m.group(1))
+
+            m2 = re.search(r"section\s*(\d+)", text, re.I)
+            if m2:
+                is_heading = True
+                current_section = f"section_{m2.group(1).zfill(2)}"
+
+            structure.append({
+                "type": "heading" if is_heading else "paragraph",
+                "text": text,
+                "heading_level": level,
+                "style": style,
+                "section": current_section
+            })
+
+        elif isinstance(block, Table):
+            headers = [cell.text.strip() for cell in block.rows[0].cells if cell.text.strip()]
+            structure.append({
+                "type": "table",
+                "table": block,
+                "rows": len(block.rows),
+                "cols": len(block.columns),
+                "headers": headers,
+                "section": current_section
+            })
+
+    return structure
+
+# ============================================================
+# JSON Schema logic (unchanged)
+# ============================================================
+
+def resolve_schema_ref(schema_data, ref_path):
+    if not ref_path.startswith("#/"):
+        return None
+    parts = ref_path[2:].split("/")
+    current = schema_data
+    for part in parts:
+        current = current.get(part)
+        if current is None:
+            return None
+    return current
+
+def extract_json_paths(schema_data, prefix="", section=""):
+    paths = []
+    if "properties" in schema_data:
+        for k, v in schema_data["properties"].items():
+            path = f"{prefix}.{k}" if prefix else k
+            new_section = k if k.startswith("section_") else section
+
+            if "$ref" in v:
+                ref = resolve_schema_ref(schema_data, v["$ref"])
+                paths += extract_json_paths(ref, path, new_section)
+            elif v.get("type") == "object":
+                paths += extract_json_paths(v, path, new_section)
+            elif v.get("type") == "array":
+                items = v["items"]
+                if "$ref" in items:
+                    ref = resolve_schema_ref(schema_data, items["$ref"])
+                    paths += extract_json_paths(ref, path, new_section)
+            else:
+                paths.append({"path": path, "field_name": k, "section": section})
+
+    return paths
+
+# ============================================================
+# Streamlit App
+# ============================================================
 
 st.title("Flexible Exports Pilot")
 
-# 1. File Uploads
 template_file = st.file_uploader("Upload Word Template", type="docx")
 schema_file = st.file_uploader("Upload JSON Schema", type="json")
 
 if template_file and schema_file:
-    # Load data
     schema_data = json.load(schema_file)
     doc = Document(template_file)
-    
-    # 2. Check if document has tables
-    if not doc.tables:
-        st.error("⚠️ The uploaded template has no tables. Please upload a template with at least one table.")
-        st.stop()
-    
-    # Let user select which table to use
-    st.subheader("Select Table")
-    st.write(f"Found {len(doc.tables)} table(s) in the document.")
-    
-    table_index = st.selectbox(
-        "Which table contains the data to map?",
-        options=range(len(doc.tables)),
-        format_func=lambda i: f"Table {i + 1}"
-    )
-    
-    table = doc.tables[table_index]
-    
-    # Check if table has rows
-    if not table.rows:
-        st.error("⚠️ The selected table has no rows.")
-        st.stop()
-    
-    word_headers = [cell.text for cell in table.rows[0].cells]
-    
-    # 3. Automatic Inference
-    # Extract all possible keys from the JSON schema (no assumptions about structure)
-    available_json_keys = sorted(list(extract_all_keys(schema_data)))
-    
-    # Generate initial guesses
+
+    doc_structure = extract_document_structure(doc)
+    doc_tree = walk_container(doc, "doc")
+    tables = [x for x in doc_structure if x["type"] == "table"]
+
+    st.success(f"✓ Found {len(tables)} table(s)")
+
+    with st.expander("📄 View Document Structure"):
+        for item in doc_structure:
+            if item["type"] == "heading":
+                st.markdown(f"### 📌 {item['text']}")
+            elif item["type"] == "paragraph":
+                st.text(item["text"])
+            else:
+                st.markdown(f"📊 Table ({item['rows']}×{item['cols']}) — Section: {item['section']}")
+                if item["headers"]:
+                    st.caption(", ".join(item["headers"]))
+
+    # Full DOM walk (paragraphs, tables, cells)
+    with st.expander("📄 Full Word DOM", expanded=False):
+        st.caption("Nested view of all paragraphs, tables, rows, and cells with paths")
+        for n in doc_tree:
+            render_node(n)
+
+    # Extract Word columns
+    word_columns = []
+    for idx, t in enumerate(tables):
+        for cell in t["table"].rows[0].cells:
+            if cell.text.strip():
+                word_columns.append({
+                    "column_name": cell.text.strip(),
+                    "table_index": idx,
+                    "section": t["section"]
+                })
+
+    json_paths = extract_json_paths(schema_data)
+
+    word_col_display = []
+    word_lookup = {}
+    for c in word_columns:
+        label = f"{c['column_name']} ({c['section'] or 'No section'})"
+        word_col_display.append(label)
+        word_lookup[label] = c
+
     mappings = []
-    for header in word_headers:
-        normalized = normalize_header(header)
-        # Guess the match, or default to None
-        match = normalized if normalized in available_json_keys else None
-        mappings.append({"Word Column": header, "Mapped JSON Key": match})
+    for j in json_paths:
+        guess = None
+        for label, c in word_lookup.items():
+            if c["section"] == j["section"] and normalize_header(c["column_name"]) == normalize_header(j["field_name"]):
+                guess = label
+        mappings.append({"JSON Field": j["path"], "Word Column": guess, "Section": j["section"]})
 
-    # 4. Manual Review (The "Option to do changes")
-    st.subheader("Review Mappings")
-    st.write("We automatically matched these columns. Please correct any mistakes.")
-    
-    # Create an editable DataFrame
     df = pd.DataFrame(mappings)
-    
-    # Use st.data_editor with a dropdown column config
-    edited_df = st.data_editor(
-        df,
-        column_config={
-            "Mapped JSON Key": st.column_config.SelectboxColumn(
-                "JSON Field",
-                options=available_json_keys + [None],
-                required=True
-            )
-        },
-        hide_index=True,
-        use_container_width=True
-    )
 
-    # 5. Generate Button
-    if st.button("Generate Document"):
-        # Convert the edited UI table back into a dictionary
-        final_mapping = dict(zip(edited_df["Word Column"], edited_df["Mapped JSON Key"]))
-        
-        # Pass 'final_mapping' to your doc_generator.py function (TODO)
-        st.success("Document generated! (Logic to be connected)")
-        
-        # st.download_button(...) # Allow user to download the result
+    edited = st.data_editor(df, column_config={
+        "Word Column": st.column_config.SelectboxColumn(options=[None] + word_col_display)
+    }, hide_index=True)
+
+    if st.button("Generate"):
+        final = {}
+        for _, row in edited.iterrows():
+            if pd.notna(row["Word Column"]):
+                final[row["JSON Field"]] = word_lookup[row["Word Column"]]
+        st.json(final)
