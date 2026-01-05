@@ -55,6 +55,36 @@ def walk_container(container, path):
 
     return nodes
 
+def collect_text_nodes(doc_structure):
+    """
+    Collect only text-bearing items (headings, paragraphs, table headers) with section info.
+    Skips blanks and returns label + info for selection.
+    """
+    items = []
+    for idx, item in enumerate(doc_structure):
+        section = item.get("section")
+        if item["type"] in ("heading", "paragraph"):
+            text = item["text"].strip()
+            if not text:
+                continue
+            label = f"{text[:60]}{'...' if len(text) > 60 else ''}"
+            items.append({
+                "label": label,
+                "section": section,
+                "text": text,
+                "path": f"item[{idx}]"
+            })
+        elif item["type"] == "table" and item.get("headers"):
+            for h_idx, header in enumerate(item["headers"]):
+                label = f"{header} (Table header)"
+                items.append({
+                    "label": label,
+                    "section": section,
+                    "text": header,
+                    "path": f"table[{idx}]/header[{h_idx}]"
+                })
+    return items
+
 def render_node(node):
     """
     Render a node from the walk_container DOM tree into Streamlit.
@@ -134,36 +164,63 @@ def extract_document_structure(doc):
 # JSON Schema logic (unchanged)
 # ============================================================
 
-def resolve_schema_ref(schema_data, ref_path):
+def resolve_schema_ref(root_schema, ref_path):
     if not ref_path.startswith("#/"):
         return None
     parts = ref_path[2:].split("/")
-    current = schema_data
+    current = root_schema
     for part in parts:
+        if not isinstance(current, dict):
+            return None
         current = current.get(part)
         if current is None:
             return None
     return current
 
-def extract_json_paths(schema_data, prefix="", section=""):
+def extract_json_paths(schema_data, prefix="", section="", root=None):
+    """
+    Extract all leaf fields from the JSON schema with proper section context.
+    Includes strings like title, date_written, date_due across all sections.
+    """
+    if root is None:
+        root = schema_data
+    if not isinstance(schema_data, dict):
+        return []
+
     paths = []
     if "properties" in schema_data:
         for k, v in schema_data["properties"].items():
             path = f"{prefix}.{k}" if prefix else k
-            new_section = k if k.startswith("section_") else section
+            current_section = k if k.startswith("section_") else section
+
+            # Handle anyOf/allOf/oneOf with $ref inside
+            combo = v.get("anyOf") or v.get("allOf") or v.get("oneOf")
+            if combo:
+                for option in combo:
+                    if "$ref" in option:
+                        ref = resolve_schema_ref(root, option["$ref"])
+                        if ref:
+                            paths += extract_json_paths(ref, path, current_section, root)
+                continue
 
             if "$ref" in v:
-                ref = resolve_schema_ref(schema_data, v["$ref"])
-                paths += extract_json_paths(ref, path, new_section)
+                ref = resolve_schema_ref(root, v["$ref"])
+                if ref:
+                    paths += extract_json_paths(ref, path, current_section, root)
             elif v.get("type") == "object":
-                paths += extract_json_paths(v, path, new_section)
+                paths += extract_json_paths(v, path, current_section, root)
             elif v.get("type") == "array":
-                items = v["items"]
-                if "$ref" in items:
-                    ref = resolve_schema_ref(schema_data, items["$ref"])
-                    paths += extract_json_paths(ref, path, new_section)
+                items = v.get("items")
+                if isinstance(items, dict) and "$ref" in items:
+                    ref = resolve_schema_ref(root, items["$ref"])
+                    if ref:
+                        paths += extract_json_paths(ref, path, current_section, root)
+                elif isinstance(items, dict):
+                    paths += extract_json_paths(items, path, current_section, root)
             else:
-                paths.append({"path": path, "field_name": k, "section": section})
+                # Leaf node (only include strings for text mapping)
+                if v.get("type") == "string":
+                    paths.append({"path": path, "field_name": k, "section": current_section})
 
     return paths
 
@@ -183,6 +240,9 @@ if template_file and schema_file:
     doc_structure = extract_document_structure(doc)
     doc_tree = walk_container(doc, "doc")
     tables = [x for x in doc_structure if x["type"] == "table"]
+
+    # Map table path -> section for DOM tagging
+    table_section_map = {f"doc/table[{i}]": t["section"] for i, t in enumerate(tables)}
 
     st.success(f"✓ Found {len(tables)} table(s)")
 
@@ -221,25 +281,62 @@ if template_file and schema_file:
     for c in word_columns:
         label = f"{c['column_name']} ({c['section'] or 'No section'})"
         word_col_display.append(label)
-        word_lookup[label] = c
+        word_lookup[label] = {
+            **c,
+            "type": "header_cell",
+            "path": f"table[{c['table_index']}]/header/{c['column_name']}"
+        }
 
-    mappings = []
+    # Text options (paragraphs, headings, table headers) by section
+    text_nodes = collect_text_nodes(doc_structure)
+    text_by_section = {}
+    for n in text_nodes:
+        text_by_section.setdefault(n["section"], []).append(n)
+
+    st.subheader("Review Mappings (JSON on left, Word text on right)")
+
+    selections = {}
+
+    # Group fields by section for table-style UI
+    fields_by_section = {}
     for j in json_paths:
-        guess = None
-        for label, c in word_lookup.items():
-            if c["section"] == j["section"] and normalize_header(c["column_name"]) == normalize_header(j["field_name"]):
-                guess = label
-        mappings.append({"JSON Field": j["path"], "Word Column": guess, "Section": j["section"]})
+        fields_by_section.setdefault(j["section"], []).append(j)
 
-    df = pd.DataFrame(mappings)
+    for section, fields in fields_by_section.items():
+        st.markdown(f"#### Section: {section or 'N/A'}")
+        options = text_by_section.get(section, [])
+        option_labels = [None] + [o["label"] for o in options]
+        option_lookup = {o["label"]: o for o in options}
 
-    edited = st.data_editor(df, column_config={
-        "Word Column": st.column_config.SelectboxColumn(options=[None] + word_col_display)
-    }, hide_index=True)
+        data = []
+        for j in fields:
+            # auto-guess exact text match
+            guess_label = None
+            for o in options:
+                if normalize_header(o["text"]) == normalize_header(j["field_name"]):
+                    guess_label = o["label"]
+                    break
+            data.append({"JSON Field": j["path"], "Word Text": guess_label})
+
+        df = pd.DataFrame(data)
+
+        edited = st.data_editor(
+            df,
+            column_config={
+                "Word Text": st.column_config.SelectboxColumn(
+                    options=option_labels,
+                    help="Select text from the same section of the Word document"
+                ),
+                "JSON Field": st.column_config.TextColumn(disabled=True)
+            },
+            hide_index=True
+        )
+
+        # Collect selections
+        for _, row in edited.iterrows():
+            if pd.notna(row["Word Text"]):
+                selections[row["JSON Field"]] = option_lookup.get(row["Word Text"])
 
     if st.button("Generate"):
-        final = {}
-        for _, row in edited.iterrows():
-            if pd.notna(row["Word Column"]):
-                final[row["JSON Field"]] = word_lookup[row["Word Column"]]
+        final = selections
         st.json(final)
