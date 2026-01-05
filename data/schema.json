@@ -14,7 +14,8 @@
           "type": "string"
         },
         "date_completed": {
-          "type": "string"
+          "type": "string",
+          "format": "date"
         }
       },
       "required": [
@@ -35,7 +36,8 @@
           "type": "string"
         },
         "email_address": {
-          "type": "string"
+          "type": "string",
+          "format": "email"
         },
         "active_employee": {
           "type": "boolean"
@@ -56,10 +58,12 @@
           "type": "string"
         },
         "date_written": {
-          "type": "string"
+          "type": "string",
+          "format": "date"
         },
         "date_due": {
-          "type": "string"
+          "type": "string",
+          "format": "date"
         }
       },
       "required": [
@@ -174,7 +178,8 @@
       "additionalProperties": false,
       "properties": {
         "date": {
-          "type": "string"
+          "type": "string",
+          "format": "date"
         },
         "author": {
           "type": "string"

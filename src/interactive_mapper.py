@@ -80,7 +80,8 @@ def extract_json_fields(schema_data, prefix="", section="", root=None, group=Non
                     "field_name": k,
                     "section": current_section,
                     "group": current_group,
-                    "type": v.get("type", "unknown")
+                    "type": v.get("type", "unknown"),
+                    "format": v.get("format")  # Add format attribute (date, email, etc.)
                 })
     
     return fields
@@ -197,11 +198,20 @@ if doc_file and schema_file:
     # Create DataFrame with JSON fields to map
     df_data = []
     for field in json_fields:
+        # Show full path with format hint
+        field_display = field["path"]
+        if field.get("format"):
+            if field["format"] == "date":
+                field_display += " 📅"
+            elif field["format"] == "email":
+                field_display += " 📧"
+        
         df_data.append({
-            "JSON Field": field["field_name"],
+            "JSON Field": field_display,
             "Full Path": field["path"],
             "Group": field["group"],
             "Type": field["type"],
+            "Format": field.get("format", ""),
             "Mapped To": "(Not Mapped)"
         })
     
@@ -252,27 +262,6 @@ if doc_file and schema_file:
         html += "</div>"
         return html
     
-    # Search/filter
-    st.markdown("---")
-    col1, col2, col3 = st.columns([2, 1, 1])
-    with col1:
-        search = st.text_input("🔍 Search JSON field names", "")
-    with col2:
-        group_filter = st.multiselect("Filter by group", 
-                                     sorted(fields_by_group.keys()),
-                                     default=sorted(fields_by_group.keys()))
-    with col3:
-        show_only_unmapped = st.checkbox("Show only unmapped", value=False)
-    
-    # Apply filters
-    df_filtered = df.copy()
-    if search:
-        df_filtered = df_filtered[df_filtered["JSON Field"].str.contains(search, case=False, na=False)]
-    if group_filter:
-        df_filtered = df_filtered[df_filtered["Group"].isin(group_filter)]
-    if show_only_unmapped:
-        df_filtered = df_filtered[df_filtered["Mapped To"] == "(Not Mapped)"]
-    
     st.markdown("---")
     
     # Two column layout: Mapping table on left, Document preview on right
@@ -281,15 +270,17 @@ if doc_file and schema_file:
     with col_table:
         st.markdown("### 📝 Map JSON Fields to Document")
         st.caption("For each JSON field, select where in the document it should go")
+        st.caption("📅 = date field (will support date picker) | 📧 = email field (will validate format)")
         
         # Interactive editor
         edited_df = st.data_editor(
-            df_filtered,
+            df,
             column_config={
-                "JSON Field": st.column_config.TextColumn("Field", width="medium", disabled=True),
-                "Full Path": st.column_config.TextColumn("Path", width="medium", disabled=True),
-                "Group": st.column_config.TextColumn("Group", width="small", disabled=True),
-                "Type": st.column_config.TextColumn("Type", width="small", disabled=True),
+                "JSON Field": st.column_config.TextColumn("Field", width="medium", disabled=True, help="📅 = date field, 📧 = email field"),
+                "Full Path": None,  # Hide this column
+                "Group": None,       # Hide this column
+                "Type": None,        # Hide this column
+                "Format": None,      # Hide this column
                 "Mapped To": st.column_config.SelectboxColumn(
                     "Document Location",
                     options=text_options,
@@ -307,6 +298,13 @@ if doc_file and schema_file:
         for idx in edited_df.index:
             df.at[idx, "Mapped To"] = edited_df.at[idx, "Mapped To"]
         
+        # Show progress below the editor
+        st.markdown("---")
+        mapped_count = (edited_df["Mapped To"] != "(Not Mapped)").sum()
+        total_fields = len(edited_df)
+        st.progress(mapped_count / total_fields if total_fields > 0 else 0)
+        st.caption(f"**Progress:** {mapped_count} / {total_fields} JSON fields mapped")
+        
         # Refresh preview button
         if st.button("🔄 Refresh Preview"):
             st.rerun()
@@ -315,13 +313,15 @@ if doc_file and schema_file:
         st.markdown("### 📄 Document Preview")
         st.caption("Green = will be replaced by JSON data")
         
-        # Build a reverse mapping for preview: segment_idx -> json_field
+        # Build a reverse mapping for preview: segment_idx -> json_field (show full path)
         segment_to_field = {}
         for _, row in df.iterrows():
             if row["Mapped To"] != "(Not Mapped)":
                 location_info = text_lookup.get(row["Mapped To"])
                 if location_info:
-                    segment_to_field[location_info["index"]] = row["JSON Field"]
+                    # Remove emoji for display
+                    clean_field = row["JSON Field"].replace(" 📅", "").replace(" 📧", "")
+                    segment_to_field[location_info["index"]] = clean_field
         
         # Render document preview with mappings
         doc_html = render_document_preview_with_mappings(segments, segment_to_field)
@@ -339,12 +339,6 @@ if doc_file and schema_file:
                 else:
                     st.text(f"[{idx:03d}] {emoji} {seg['text']}")
     
-    # Show progress
-    mapped_count = (df["Mapped To"] != "(Not Mapped)").sum()
-    total_fields = len(df)
-    st.progress(mapped_count / total_fields if total_fields > 0 else 0)
-    st.caption(f"**Progress:** {mapped_count} / {total_fields} JSON fields mapped")
-    
     # Show mapping summary
     with st.expander("📊 Mapping Summary"):
         mapped_fields = df[df["Mapped To"] != "(Not Mapped)"][["JSON Field", "Group", "Mapped To"]]
@@ -355,6 +349,7 @@ if doc_file and schema_file:
     
     # Save mapping configuration
     st.markdown("---")
+    
     col1, col2 = st.columns([1, 3])
     
     with col1:
@@ -368,9 +363,14 @@ if doc_file and schema_file:
                     location_info = text_lookup.get(row["Mapped To"])
                     
                     if location_info:
+                        # Clean path (remove emoji) and extract just the field name
+                        clean_path = row["JSON Field"].replace(" 📅", "").replace(" 📧", "")
+                        field_name = clean_path.split(".")[-1].replace("[]", "")
+                        
                         mapping_config[json_path] = {
-                            "field_name": row["JSON Field"],
+                            "field_name": field_name,
                             "group": row["Group"],
+                            "format": row["Format"] if row["Format"] else None,
                             "document_location": {
                                 "index": location_info["index"],
                                 "text": location_info["text"],
